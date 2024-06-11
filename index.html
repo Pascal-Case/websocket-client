@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.1.4/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <link rel="stylesheet" href="./style.css" />
+    <script src="./index.js" defer></script>
+  </head>
+  <body>
+    <section>
+      <label>
+        <input type="text" id="email" placeholder="Email" />
+      </label>
+      <label>
+        <input type="password" id="password" placeholder="Password" />
+      </label>
+      <button id="login" onclick="login()">로그인</button>
+      <span id="result"></span>
+    </section>
+
+    <section>
+      <label for="classId">
+        문의할 클래스 id
+        <input type="text" id="classId" />
+      </label>
+      <button id="createChatRoomBtn" onclick="inquiry()">문의하기</button>
+      <span id="result2"></span>
+    </section>
+
+    <section>
+      <button onclick="getChatRoomList()">채팅방 목록 가져오기</button>
+      <div class="chatRoomTitle">문의한 채팅방</div>
+      <div id="inquiredChatRooms"></div>
+
+      <div class="chatRoomTitle">문의받은 채팅방</div>
+      <div id="receivedInquiryChatRooms"></div>
+    </section>
+
+    <section id="chat-container">
+      <h2>채팅방</h2>
+      <div id="message-area"></div>
+      <input type="text" id="message-input" placeholder="메시지 입력" />
+      <button onclick="sendMessage()">전송</button>
+      <button onclick="unsubscribeChatRoom()">나가기</button>
+    </section>
+  </body>
+</html>
