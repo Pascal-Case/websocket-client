@@ -1,7 +1,7 @@
 let socket;
 let stompClient;
 let accessToken = '';
-let subscription;
+let chatRoomSubscriptions = {};
 let myId;
 
 // 로그인
@@ -115,43 +115,85 @@ function connectChatRoom(chatRoomId) {
 
 function subscribeChatRoom(chatRoomId) {
   console.log(`채팅방 ${chatRoomId} 구독`);
-  subscription = stompClient.subscribe('/chatRoom/' + chatRoomId, (response) => {
+  let messageSubscription = stompClient.subscribe('/chatRoom/' + chatRoomId, (response) => {
     console.log('메시지 수신');
     const body = JSON.parse(response.body);
     showMessage(body);
   });
+
+  let readReceiptSubscription = stompClient.subscribe('/read/' + chatRoomId, (response) => {
+    console.log('메시지 읽음 처리');
+    const body = JSON.parse(response.body);
+    const readReceiptList = body.readReceipts;
+    console.log(readReceiptList);
+
+    readReceiptList.forEach((receipt) => {
+      markMessageAsRead(receipt);
+    });
+  });
+
+  chatRoomSubscriptions[chatRoomId] = {
+    messageSubscription,
+    readReceiptSubscription,
+  };
 }
 
-function unsubscribeChatRoom() {
-  subscription.unsubscribe();
+function unsubscribeChatRoom(chatRoomId) {
+  let subscriptions = chatRoomSubscriptions[chatRoomId];
+  if (subscriptions) {
+    chatRoomSubscriptions.messageSubscription.unsubscribe();
+    chatRoomSubscriptions.readReceiptSubscription.unsubscribe();
+    delete chatRoomSubscriptions[chatRoomId];
+  }
 }
 
 function sendMessage() {
   let message = document.getElementById('message-input').value;
   document.getElementById('message-input').value = '';
   stompClient.send(
-    '/send/' + currentChatRoomId,
+    '/app/send/' + currentChatRoomId,
     {},
     JSON.stringify({
       message: message,
     })
   );
 }
-
+function sendMarkMessage(messageId) {
+  console.log('send mark as read ', messageId);
+  stompClient.send('/app/read/' + messageId, {}, {});
+}
 function showMessage(response) {
-  console.log(response);
   const messageContent = response.message;
   const senderId = response.senderId;
-  const isRead = response.read;
+  const isRead = response.isRead;
 
   let messageArea = document.getElementById('message-area');
   let messageElement = document.createElement('p');
-
-  console.log(senderId, myId);
+  messageElement.id = 'message-' + response.messageId;
 
   messageElement.style.textAlign = senderId == myId ? 'right' : 'left';
-  messageElement.appendChild(document.createTextNode(messageContent + (isRead ? ' (읽음)' : '')));
+  messageElement.appendChild(document.createTextNode(messageContent));
+  if (senderId == myId) {
+    messageElement.prepend(document.createTextNode(isRead ? '(읽음)   ' : ''));
+  }
+
+  if (senderId != myId && !isRead) {
+    sendMarkMessage(response.messageId);
+  }
+
   messageArea.appendChild(messageElement);
+}
+
+function markMessageAsRead(reaeReceipt) {
+  console.log(reaeReceipt.userId, myId);
+  console.table(reaeReceipt);
+  if (reaeReceipt.userId == myId) {
+    return;
+  }
+  const messageElement = document.getElementById('message-' + reaeReceipt.messageId);
+  if (messageElement) {
+    messageElement.prepend(document.createTextNode('(읽음)    '));
+  }
 }
 
 // 채팅방 목록
@@ -186,9 +228,7 @@ function fillChatRooms(divId, chatRooms) {
 
       currentChatRoomId = chatRoom.chatRoomId;
 
-      if (subscription != null) {
-        unsubscribeChatRoom();
-      } else if (socket == null) {
+      if (stompClient == '' || stompClient == null) {
         connectSocket();
       }
 
