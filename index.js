@@ -161,7 +161,9 @@ async function connectSocket() {
     stompClient = Stomp.over(socket);
 
     stompClient.connect(
-      {},
+      {
+        access: accessToken,
+      },
       (frame) => {
         console.log('Connected: ' + frame);
         resolve();
@@ -176,14 +178,9 @@ async function connectSocket() {
 
 function disconnectSocket() {
   if (stompClient) {
-    stompClient.disconnect(
-      {
-        access: accessToken,
-      },
-      () => {
-        console.log('Disconnected from STOMP server');
-      }
-    );
+    stompClient.disconnect(function () {}, {
+      access: accessToken,
+    });
   }
 }
 
