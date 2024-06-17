@@ -2,6 +2,8 @@ let socket;
 let stompClient;
 let accessToken = '';
 let chatRoomSubscriptions = {};
+let chatRoomUnreadCountSubscription = {};
+let currentChatRoomId;
 let myId;
 
 // 로그인
@@ -25,26 +27,37 @@ async function login() {
     accessToken = response.headers.access;
     console.log('accessToken : ', accessToken);
     document.getElementById('result').innerText = response.data.message;
+
+    // 일단 로그인 후에 바로 소켓을 연결
+    await connectSocket();
   } catch (error) {
     console.error('Login Error:', error);
   }
 }
 
-function inquiry() {
-  const classId = document.getElementById('classId').value;
-  createChatRoom(classId).then((chatRoomId) => {
-    console.log('created room id: ', chatRoomId);
-    currentChatRoomId = chatRoomId;
+// 문의하기
+async function inquiry() {
+  try {
+    const classId = document.getElementById('classId').value;
+    createChatRoom(classId).then((chatRoomId) => {
+      console.log('created room id: ', chatRoomId);
+      currentChatRoomId = chatRoomId;
 
-    // 소켓 연결
-    connectSocket();
+      // 채팅방 목록 가져오기
+      getChatRoomList();
 
-    // 채팅방 연결
-    connectChatRoom(chatRoomId);
+      // 채팅방 목록 업데이트 구독
+      subscribeChatRoomsUnreadCountInfo(myId);
 
-    // 채팅방 정보 가져오기
-    joinChatRoom(chatRoomId);
-  });
+      // 채팅방 구독
+      subscribeChatRoom(chatRoomId);
+
+      // 채팅방 정보 가져오기
+      joinChatRoom(chatRoomId);
+    });
+  } catch (error) {
+    console.error(' Error:', error);
+  }
 }
 
 // 채팅방 생성
@@ -71,9 +84,10 @@ async function createChatRoom(classId) {
   }
 }
 
-// 채팅방 정보 가져오기
+// 채팅방 입장 + 정보 가져오기
 async function joinChatRoom(chatRoomId) {
   console.log('joinChatRoom');
+
   try {
     const response = await axios.get('http://localhost:8080/api/chatRooms/' + chatRoomId + '/join', {
       headers: {
@@ -99,18 +113,96 @@ async function joinChatRoom(chatRoomId) {
   }
 }
 
-async function connectSocket() {
-  // 연결
-  socket = new SockJS(`http://localhost:8080/CB-websocket?access_token=${accessToken}`);
-  stompClient = Stomp.over(socket);
+async function closeChatRoom() {
+  console.log('closeChatRoom', currentChatRoomId);
+  try {
+    await axios.post(
+      'http://localhost:8080/api/chatRooms/' + currentChatRoomId + '/close',
+      {},
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          access: accessToken,
+        },
+        withCredentials: true,
+      }
+    );
+
+    unsubscribeChatRoom(currentChatRoomId);
+  } catch (error) {
+    console.error('Error:', error);
+  }
 }
 
-function connectChatRoom(chatRoomId) {
-  // 채팅방 연결
-  stompClient.connect({}, (frame) => {
-    console.log('Connected: ' + frame);
-    subscribeChatRoom(chatRoomId);
+async function leaveChatRoom() {
+  console.log('leaveChatRoom', currentChatRoomId);
+  try {
+    await axios.post(
+      'http://localhost:8080/api/chatRooms/' + currentChatRoomId + '/leave',
+      {},
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          access: accessToken,
+        },
+        withCredentials: true,
+      }
+    );
+
+    unsubscribeChatRoom(currentChatRoomId);
+  } catch (error) {
+    console.error('Error:', error);
+  }
+}
+
+async function connectSocket() {
+  return new Promise((resolve, reject) => {
+    socket = new SockJS(`http://localhost:8080/CB-websocket?access_token=${accessToken}`);
+    stompClient = Stomp.over(socket);
+
+    stompClient.connect(
+      {},
+      (frame) => {
+        console.log('Connected: ' + frame);
+        resolve();
+      },
+      (error) => {
+        console.error('Connection error: ', error);
+        reject(error);
+      }
+    );
   });
+}
+
+function disconnectSocket() {
+  if (stompClient) {
+    stompClient.disconnect(
+      {
+        access: accessToken,
+      },
+      () => {
+        console.log('Disconnected from STOMP server');
+      }
+    );
+  }
+}
+
+function subscribeChatRoomsUnreadCountInfo(myId) {
+  console.log('채팅방 목록 업데이트 구독');
+  console.log('/chatRooms/' + myId + '/unreadCountInfo');
+
+  let subscription = stompClient.subscribe('/chatRooms/' + myId + '/unreadCountInfo', (response) => {
+    console.log('채팅방 목록 업데이트!');
+    const body = JSON.parse(response.body);
+    console.log(body);
+
+    const chatRoomDiv = document.getElementById('chatRoom-' + body.chatRoomId);
+    const infoDiv = document.createElement('div');
+    infoDiv.textContent = `안읽은 메시지 수 : ${body.unreadMessageCount}, 최근 메시지 : ${body.latestMessage}`;
+    chatRoomDiv.appendChild(infoDiv);
+  });
+
+  chatRoomUnreadCountSubscription[myId] = subscription;
 }
 
 function subscribeChatRoom(chatRoomId) {
@@ -190,7 +282,8 @@ function markMessageAsRead(reaeReceipt) {
   if (reaeReceipt.userId == myId) {
     return;
   }
-  const messageElement = document.getElementById('message-' + reaeReceipt.messageId);
+  const messageId = 'message-' + reaeReceipt.chatMessageId;
+  const messageElement = document.getElementById(messageId);
   if (messageElement) {
     messageElement.prepend(document.createTextNode('(읽음)    '));
   }
@@ -209,9 +302,11 @@ async function getChatRoomList() {
 
     const chatRooms = response.data.data;
     console.log(chatRooms);
-
+    myId = chatRooms.userId;
     fillChatRooms('inquiredChatRooms', chatRooms.inquiredChatRoomsChatRooms);
     fillChatRooms('receivedInquiryChatRooms', chatRooms.receivedInquiryChatRoomsChatRooms);
+
+    subscribeChatRoomsUnreadCountInfo(myId);
   } catch (error) {
     console.error('Error joining chat room:', error);
   }
@@ -220,19 +315,22 @@ async function getChatRoomList() {
 function fillChatRooms(divId, chatRooms) {
   const div = document.getElementById(divId);
   chatRooms.forEach((chatRoom) => {
+    const unreadCountInfo = chatRoom.unreadCountInfo;
     const chatRoomDiv = document.createElement('div');
+    chatRoomDiv.id = 'chatRoom-' + chatRoom.chatRoomId;
     chatRoomDiv.textContent = `채팅방 ID: ${chatRoom.chatRoomId}, 문의한 유저: ${chatRoom.inquiredUserId}, 문의받은 유저: ${chatRoom.tutorUserId}`;
     chatRoomDiv.className = 'chat-room';
+
+    const infoDiv = document.createElement('div');
+    infoDiv.textContent = `안읽은 메시지 수 : ${unreadCountInfo.unreadMessageCount}, 최근 메시지 : ${unreadCountInfo.latestMessage}`;
+    chatRoomDiv.appendChild(infoDiv);
+
     chatRoomDiv.addEventListener('click', function () {
       console.log('채팅방 열기');
 
       currentChatRoomId = chatRoom.chatRoomId;
 
-      if (stompClient == '' || stompClient == null) {
-        connectSocket();
-      }
-
-      connectChatRoom(currentChatRoomId);
+      subscribeChatRoom(currentChatRoomId);
 
       joinChatRoom(currentChatRoomId);
     });

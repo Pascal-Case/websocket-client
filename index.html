@@ -45,7 +45,12 @@
       <div id="message-area"></div>
       <input type="text" id="message-input" placeholder="메시지 입력" />
       <button onclick="sendMessage()">전송</button>
-      <!-- <button onclick="unsubscribeChatRoom()">나가기</button> -->
+      <button onclick="closeChatRoom()">채팅방 닫기</button>
+      <button onclick="leaveChatRoom()">퇴장하기</button>
     </section>
+
+    <div>
+      <button onclick="disconnectSocket()">소켓 연결 종료</button>
+    </div>
   </body>
 </html>
